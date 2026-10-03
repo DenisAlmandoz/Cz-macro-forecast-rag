@@ -1,0 +1,31 @@
+# Secrets — never commit. Contains GROK_API_KEY.
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Persisted vector database (rebuildable: python scripts/reingest.py)
+data/chroma/
+data/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db

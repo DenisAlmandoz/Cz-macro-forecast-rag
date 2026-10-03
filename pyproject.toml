@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "czech-forecast-rag"
+version = "2.0.0"
+description = "Read-only RAG app over Czech Ministry of Finance macroeconomic forecast editions: hybrid BM25 + vector retrieval with Grok generation"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.95",
+  "uvicorn[standard]>=0.22",
+  "python-dotenv>=1.0",
+  "PyMuPDF>=1.22",
+  "sentence-transformers>=2.2",
+  "rank-bm25>=0.2.2",
+  "chromadb>=0.4.0",
+  "requests>=2.31",
+  "pytesseract>=0.3.10",
+  "pillow>=10.0",
+  "numpy>=1.24",
+]
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.setuptools.package-data]
+app = ["static/*.html"]

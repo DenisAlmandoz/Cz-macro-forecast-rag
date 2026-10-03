@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Czech Forecast RAG</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; display: flex; justify-content: center; }
+      .box { max-width: 700px; width: 100%; margin: 40px 20px; background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 85vh; }
+      .header { background: #1a73e8; color: white; padding: 16px 24px; }
+      .header h1 { margin: 0; font-size: 18px; }
+      .header .sub { font-size: 12px; opacity: 0.85; margin-top: 3px; }
+      #chatbox { flex: 1; overflow-y: auto; padding: 20px 24px; font-size: 15px; line-height: 1.5; }
+      .msg { margin-bottom: 16px; }
+      .msg .label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; font-weight: bold; }
+      .msg .bubble { background: #f0f0f0; padding: 10px 14px; border-radius: 8px; display: inline-block; max-width: 85%; white-space: pre-wrap; }
+      .msg.you { text-align: right; }
+      .msg.you .bubble { background: #e3f2fd; text-align: left; }
+      .msg .sources { font-size: 12px; color: #888; margin-top: 4px; }
+      .msg .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; background: #e8f0fe; color: #1a73e8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+      .msg .badge.table { background: #e6f4ea; color: #137333; }
+      .error { background: #fdecea; border-left: 3px solid #d93025; color: #a50e0e; font-size: 13px; padding: 10px 12px; border-radius: 6px; margin-bottom: 6px; }
+      .error code { font-size: 12px; word-break: break-word; }
+      .input-row { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid #eee; }
+      .input-row input { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; outline: none; }
+      .input-row input:focus { border-color: #1a73e8; }
+      .input-row button { padding: 12px 24px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; }
+      .input-row button:hover { background: #1558b0; }
+      .loading { color: #999; font-style: italic; padding: 10px 14px; }
+      .no-docs { text-align: center; color: #999; padding: 40px 20px; font-size: 14px; }
+      .warn { background: #fef7e0; border-left: 3px solid #f9ab00; color: #a50e0e; font-size: 13px; padding: 10px 12px; border-radius: 6px; margin-bottom: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div class="header">
+        <h1>Czech Macroeconomic Forecast</h1>
+        <div class="sub" id="corpusInfo">loading index&hellip;</div>
+      </div>
+      <div id="chatbox">
+        <div class="no-docs">Ask a question about the forecast.</div>
+      </div>
+      <div class="input-row">
+        <input id="chatInput" type="text" placeholder="Ask about GDP, inflation, labour market..." autofocus />
+        <button id="chatBtn">Send</button>
+      </div>
+    </div>
+
+    <script>
+      const chatHistory = [];
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+
+      function appendChat(msg, sender, sources, error) {
+        const box = document.getElementById('chatbox');
+        const noDocs = box.querySelector('.no-docs');
+        if (noDocs) noDocs.remove();
+
+        const div = document.createElement('div');
+        div.className = 'msg' + (sender === 'You' ? ' you' : '');
+        let html = `<span class="label">${sender}</span><div class="bubble">${escapeHtml(msg)}</div>`;
+        if (error) {
+          html += `<div class="error"><strong>Generation failed</strong><br>${escapeHtml(error)}</div>`;
+        }
+        if (sources && sources.length > 0) {
+          const badges = sources.filter(s => s.page).map(s => {
+            const kind = s.type === 'table' ? 'table' : 'text';
+            return `<span class="badge ${kind}">${escapeHtml(s.type || 'text')}</span>`;
+          }).join(' ');
+          const pages = [...new Set(sources.filter(s => s.page).map(s => s.page))];
+          html += `<div class="sources">Source pages: ${pages.join(', ')} ${badges}</div>`;
+        }
+        div.innerHTML = html;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function showLoading() {
+        const box = document.getElementById('chatbox');
+        const noDocs = box.querySelector('.no-docs');
+        if (noDocs) noDocs.remove();
+        const div = document.createElement('div');
+        div.id = 'loading';
+        div.className = 'msg';
+        div.innerHTML = `<div class="loading">Thinking...</div>`;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function hideLoading() {
+        const el = document.getElementById('loading');
+        if (el) el.remove();
+      }
+
+      // Populate the header from /health so an empty index is visible immediately.
+      (async function(){
+        const info = document.getElementById('corpusInfo');
+        try {
+          const res = await fetch('/health');
+          const j = await res.json();
+          const n = j.total_chunks || 0;
+          if (n === 0) {
+            info.textContent = 'Index empty';
+            const box = document.getElementById('chatbox');
+            box.innerHTML = '<div class="warn">No documents are indexed. Drop a PDF into the ' +
+              'documents folder and restart, or run <code>python scripts/reingest.py</code>.</div>';
+          } else {
+            const names = Object.keys(j.by_source || {});
+            const tables = (j.by_type && j.by_type.table) || 0;
+            info.textContent = names.length
+              ? names.join(' · ') + ` — ${n} passages` + (tables ? ` (${tables} tables)` : '')
+              : `${n} passages indexed`;
+          }
+        } catch(e) {
+          info.textContent = 'Could not reach the server';
+        }
+      })();
+
+      document.getElementById('chatBtn').onclick = async function(){
+        const input = document.getElementById('chatInput');
+        const msg = input.value.trim();
+        if(!msg) return;
+        input.value = '';
+        appendChat(msg, 'You');
+        showLoading();
+
+        try {
+          const res = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg, history: chatHistory })
+          });
+          const j = await res.json();
+          hideLoading();
+          if (!res.ok) {
+            appendChat('Request failed: ' + (j.detail || res.status), 'Agent');
+            return;
+          }
+          appendChat(j.response, 'Agent', j.sources || [], j.error);
+          if (!j.error) {
+            chatHistory.push({ role: 'user', content: msg });
+            chatHistory.push({ role: 'assistant', content: j.response });
+          }
+        } catch(e) {
+          hideLoading();
+          appendChat('Error: ' + e.message, 'Agent');
+        }
+      }
+
+      document.getElementById('chatInput').addEventListener('keydown', function(e){
+        if(e.key === 'Enter') document.getElementById('chatBtn').click();
+      });
+    </script>
+  </body>
+</html>

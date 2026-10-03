@@ -1,0 +1,32 @@
+# Keep the build context small. Without this, the 1.3 GB .venv is uploaded to the daemon.
+.venv/
+venv/
+env/
+
+# Secrets — pass at runtime with --env-file / env_file, never bake into the image.
+.env
+.env.*
+!.env.example
+
+# Rebuilt inside the image or mounted as a volume.
+data/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.git/
+.gitignore
+.DS_Store
+
+# Docs and local tooling aren't needed in the runtime image.
+README.md
+ARCHITECTURE.md
+Makefile
+docker-compose.yml
+scripts/
